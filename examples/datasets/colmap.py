@@ -162,7 +162,7 @@ class Parser:
 
         # Downsampled images may have different names vs images used for COLMAP,
         # so we need to map between the two sorted lists of files.
-        if "3dv-dataset-nerfstudio" in data_dir:
+        if "3dv-dataset-nerfstudio" in data_dir or "DL3DV-Benchmark" in data_dir:
             colmap_files = sorted(_get_rel_paths(colmap_image_dir), key=lambda x: int(x.split(".")[0].split("_")[-1]))
             image_files = sorted(_get_rel_paths(image_dir), key=lambda x: int(x.split(".")[0].split("_")[-1]))
             colmap_to_image = dict(zip(colmap_files, image_files))
@@ -174,14 +174,14 @@ class Parser:
             colmap_to_image = dict(zip(colmap_files, image_files))
             image_names = colmap_files
             image_paths = [os.path.join(image_dir, colmap_to_image[f]) for f in image_names]
-        elif "DL3DV-Benchmark" in data_dir:
-            colmap_files = sorted(_get_rel_paths(colmap_image_dir))
-            image_files = sorted(_get_rel_paths(image_dir))
-            colmap_to_image = dict(zip(colmap_files, image_files))
-            if len(colmap_files) != len(image_names):
-                print(f"Warning: colmap_files: {len(colmap_files)}, image_names: {len(image_names)}")
-                image_names = colmap_files
-            image_paths = [os.path.join(image_dir, colmap_to_image[f]) for f in image_names]
+        # elif "DL3DV-Benchmark" in data_dir:
+        #     colmap_files = sorted(_get_rel_paths(colmap_image_dir))
+        #     image_files = sorted(_get_rel_paths(image_dir))
+        #     colmap_to_image = dict(zip(colmap_files, image_files))
+        #     if len(colmap_files) != len(image_names):
+        #         print(f"Warning: colmap_files: {len(colmap_files)}, image_names: {len(image_names)}")
+        #         image_names = colmap_files
+        #     image_paths = [os.path.join(image_dir, colmap_to_image[f]) for f in image_names]
         elif "nerfbusters-nerfstudio" in data_dir:
             colmap_files_tmp = _get_rel_paths(colmap_image_dir)
             for idx in range(len(colmap_files_tmp)):
