@@ -1,15 +1,13 @@
-import json
 import os
+import json
 from typing import Any, Dict, List, Optional
+from typing_extensions import assert_never
 
 import cv2
 import imageio.v2 as imageio
 import numpy as np
 import torch
-from PIL import Image
 from pycolmap import SceneManager
-from tqdm import tqdm
-from typing_extensions import assert_never
 
 from .normalize import (
     align_principal_axes,
@@ -26,31 +24,6 @@ def _get_rel_paths(path_dir: str) -> List[str]:
         for f in fn:
             paths.append(os.path.relpath(os.path.join(dp, f), path_dir))
     return paths
-
-
-def _resize_image_folder(image_dir: str, resized_dir: str, factor: int) -> str:
-    """Resize image folder."""
-    print(f"Downscaling images by {factor}x from {image_dir} to {resized_dir}.")
-    os.makedirs(resized_dir, exist_ok=True)
-
-    image_files = _get_rel_paths(image_dir)
-    for image_file in tqdm(image_files):
-        image_path = os.path.join(image_dir, image_file)
-        resized_path = os.path.join(
-            resized_dir, os.path.splitext(image_file)[0] + ".png"
-        )
-        if os.path.isfile(resized_path):
-            continue
-        image = imageio.imread(image_path)[..., :3]
-        resized_size = (
-            int(round(image.shape[1] / factor)),
-            int(round(image.shape[0] / factor)),
-        )
-        resized_image = np.array(
-            Image.fromarray(image).resize(resized_size, Image.BICUBIC)
-        )
-        imageio.imwrite(resized_path, resized_image)
-    return resized_dir
 
 
 class Parser:
@@ -70,7 +43,8 @@ class Parser:
 
         colmap_dir = os.path.join(data_dir, "sparse/0/")
         if not os.path.exists(colmap_dir):
-            colmap_dir = os.path.join(data_dir, "sparse")
+            # colmap_dir = os.path.join(data_dir, "sparse")
+            colmap_dir = os.path.join(data_dir, "colmap/sparse/0")
         assert os.path.exists(
             colmap_dir
         ), f"COLMAP directory {colmap_dir} does not exist."
@@ -188,15 +162,60 @@ class Parser:
 
         # Downsampled images may have different names vs images used for COLMAP,
         # so we need to map between the two sorted lists of files.
-        colmap_files = sorted(_get_rel_paths(colmap_image_dir))
-        image_files = sorted(_get_rel_paths(image_dir))
-        if factor > 1 and os.path.splitext(image_files[0])[1].lower() == ".jpg":
-            image_dir = _resize_image_folder(
-                colmap_image_dir, image_dir + "_png", factor=factor
-            )
+        if "3dv-dataset-nerfstudio" in data_dir:
+            colmap_files = sorted(_get_rel_paths(colmap_image_dir), key=lambda x: int(x.split(".")[0].split("_")[-1]))
+            image_files = sorted(_get_rel_paths(image_dir), key=lambda x: int(x.split(".")[0].split("_")[-1]))
+            colmap_to_image = dict(zip(colmap_files, image_files))
+            image_names = colmap_files
+            image_paths = [os.path.join(image_dir, colmap_to_image[f]) for f in image_names]
+        elif "mipnerf360-nerfstudio" in data_dir:
+            colmap_files = sorted(_get_rel_paths(colmap_image_dir), key=lambda x: int(x.split(".")[0].split("_")[-1].replace("DSCF", "").replace("DSC", "")))
+            image_files = sorted(_get_rel_paths(image_dir), key=lambda x: int(x.split(".")[0].split("_")[-1].replace("DSCF", "").replace("DSC", "")))
+            colmap_to_image = dict(zip(colmap_files, image_files))
+            image_names = colmap_files
+            image_paths = [os.path.join(image_dir, colmap_to_image[f]) for f in image_names]
+        elif "DL3DV-Benchmark" in data_dir:
+            colmap_files = sorted(_get_rel_paths(colmap_image_dir))
             image_files = sorted(_get_rel_paths(image_dir))
-        colmap_to_image = dict(zip(colmap_files, image_files))
-        image_paths = [os.path.join(image_dir, colmap_to_image[f]) for f in image_names]
+            colmap_to_image = dict(zip(colmap_files, image_files))
+            if len(colmap_files) != len(image_names):
+                print(f"Warning: colmap_files: {len(colmap_files)}, image_names: {len(image_names)}")
+                image_names = colmap_files
+            image_paths = [os.path.join(image_dir, colmap_to_image[f]) for f in image_names]
+        elif "nerfbusters-nerfstudio" in data_dir:
+            colmap_files_tmp = _get_rel_paths(colmap_image_dir)
+            for idx in range(len(colmap_files_tmp)):
+                if "frame_train_" in colmap_files_tmp[idx]:
+                    colmap_files_tmp[idx] = colmap_files_tmp[idx].replace("frame_train_", "frame_")
+                else:
+                    colmap_files_tmp[idx] = colmap_files_tmp[idx].replace("frame_eval_", "frame_1_")
+
+            image_files_tmp = _get_rel_paths(image_dir)
+            for idx in range(len(image_files_tmp)):
+                if "frame_train_" in image_files_tmp[idx]:
+                    image_files_tmp[idx] = image_files_tmp[idx].replace("frame_train_", "frame_")
+                else:
+                    image_files_tmp[idx] = image_files_tmp[idx].replace("frame_eval_", "frame_1_")
+
+            colmap_inds = np.argsort(colmap_files_tmp)
+            image_inds = np.argsort(image_files_tmp)
+
+            colmap_files = _get_rel_paths(colmap_image_dir)
+            image_files = _get_rel_paths(image_dir)
+
+            colmap_files = [colmap_files[i] for i in colmap_inds]
+            image_files = [image_files[i] for i in image_inds]
+
+            # colmap_files = sorted(_get_rel_paths(colmap_image_dir))
+            # image_files = sorted(_get_rel_paths(image_dir))
+            colmap_to_image = dict(zip(colmap_files, image_files))
+            image_names = colmap_files
+            image_paths = [os.path.join(image_dir, colmap_to_image[f]) for f in image_names]
+        else:
+            colmap_files = sorted(_get_rel_paths(colmap_image_dir))
+            image_files = sorted(_get_rel_paths(image_dir))
+            colmap_to_image = dict(zip(colmap_files, image_files))
+            image_paths = [os.path.join(image_dir, colmap_to_image[f]) for f in image_names]
 
         # 3D points and {image_name -> [point_idx]}
         points = manager.points3D.astype(np.float32)
@@ -247,6 +266,7 @@ class Parser:
 
         self.image_names = image_names  # List[str], (num_images,)
         self.image_paths = image_paths  # List[str], (num_images,)
+        self.alpha_mask_paths = None  # List[str], (num_images,)
         self.camtoworlds = camtoworlds  # np.ndarray, (num_images, 4, 4)
         self.camera_ids = camera_ids  # List[int], (num_images,)
         self.Ks_dict = Ks_dict  # Dict of camera_id -> K
@@ -270,7 +290,7 @@ class Parser:
             K[1, :] *= s_height
             self.Ks_dict[camera_id] = K
             width, height = self.imsize_dict[camera_id]
-            self.imsize_dict[camera_id] = (int(width * s_width), int(height * s_height))
+            self.imsize_dict[camera_id] = (actual_width, actual_height)
 
         # undistortion
         self.mapx_dict = dict()
@@ -315,8 +335,8 @@ class Parser:
                     + params[2] * theta**6
                     + params[3] * theta**8
                 )
-                mapx = (fx * x1 * r + width // 2).astype(np.float32)
-                mapy = (fy * y1 * r + height // 2).astype(np.float32)
+                mapx = fx * x1 * r + width // 2
+                mapy = fy * y1 * r + height // 2
 
                 # Use mask to define ROI
                 mask = np.logical_and(
@@ -362,11 +382,37 @@ class Dataset:
         self.split = split
         self.patch_size = patch_size
         self.load_depths = load_depths
+        
         indices = np.arange(len(self.parser.image_names))
-        if split == "train":
-            self.indices = indices[indices % self.parser.test_every != 0]
+        if self.parser.test_every == 1:
+            if "nerfbusters-nerfstudio" in self.parser.data_dir:
+                image_files_tmp = _get_rel_paths(f"{self.parser.data_dir}/images")
+                for idx in range(len(image_files_tmp)):
+                    if "frame_train_" in image_files_tmp[idx]:
+                        image_files_tmp[idx] = image_files_tmp[idx].replace("frame_train_", "frame_")
+                    else:
+                        image_files_tmp[idx] = image_files_tmp[idx].replace("frame_eval_", "frame_1_")
+
+                image_inds = np.argsort(image_files_tmp)
+                image_names = _get_rel_paths(f"{self.parser.data_dir}/images")
+                image_names = [image_names[i] for i in image_inds]
+            else:
+                image_names = sorted(_get_rel_paths(f"{self.parser.data_dir}/images"), key=lambda x: int(x.split(".")[0].split("_")[-1].replace("DSCF", "").replace("DSC", "")))
+
+            assert len(image_names) == len(self.parser.image_names)
+            if split == "train":
+                self.indices = [ind for ind in indices if "_train_" in image_names[ind]]
+            else:
+                self.indices = [ind for ind in indices if "_eval_" in image_names[ind]]
+        elif self.parser.test_every == 0:
+            self.indices = indices
         else:
-            self.indices = indices[indices % self.parser.test_every == 0]
+            if split == "train":
+                self.indices = indices[indices % self.parser.test_every == 0]
+            else:
+                self.indices = indices[indices % self.parser.test_every != 0]
+
+        print(f"Split: {self.split}, indices: {self.indices}")
 
     def __len__(self):
         return len(self.indices)
@@ -407,6 +453,12 @@ class Dataset:
         }
         if mask is not None:
             data["mask"] = torch.from_numpy(mask).bool()
+        
+        if self.parser.alpha_mask_paths is not None:
+            alpha_mask = imageio.imread(self.parser.alpha_mask_paths[index], mode="L")[:,:,None] / 255.0
+            if self.patch_size is not None:
+                alpha_mask = alpha_mask[y : y + self.patch_size, x : x + self.patch_size]
+            data["alpha_mask"] = torch.from_numpy(alpha_mask).float()
 
         if self.load_depths:
             # projected points to image plane to get depths
@@ -438,6 +490,7 @@ if __name__ == "__main__":
     import argparse
 
     import imageio.v2 as imageio
+    import tqdm
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str, default="data/360_v2/garden")
@@ -452,7 +505,7 @@ if __name__ == "__main__":
     print(f"Dataset: {len(dataset)} images.")
 
     writer = imageio.get_writer("results/points.mp4", fps=30)
-    for data in tqdm(dataset, desc="Plotting points"):
+    for data in tqdm.tqdm(dataset, desc="Plotting points"):
         image = data["image"].numpy().astype(np.uint8)
         points = data["points"].numpy()
         depths = data["depths"].numpy()

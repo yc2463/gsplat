@@ -15,6 +15,9 @@ import tqdm
 import tyro
 import viser
 import yaml
+import random
+from PIL import Image
+from copy import deepcopy
 from datasets.colmap import Dataset, Parser
 from datasets.traj import (
     generate_ellipse_path_z,
@@ -926,7 +929,7 @@ class Runner:
 
             torch.cuda.synchronize()
             tic = time.time()
-            colors, _, _ = self.rasterize_splats(
+            colors, alphas, _ = self.rasterize_splats(
                 camtoworlds=camtoworlds,
                 Ks=Ks,
                 width=width,
@@ -944,12 +947,23 @@ class Runner:
 
             if world_rank == 0:
                 # write images
-                canvas = torch.cat(canvas_list, dim=2).squeeze(0).cpu().numpy()
-                canvas = (canvas * 255).astype(np.uint8)
-                imageio.imwrite(
-                    f"{self.render_dir}/{stage}_step{step}_{i:04d}.png",
-                    canvas,
-                )
+                pixels_path = f"{self.render_dir}/val/{step}/GT/{i:04d}.png"
+                os.makedirs(os.path.dirname(pixels_path), exist_ok=True)
+                pixels_canvas = pixels.squeeze(0).cpu().numpy()
+                pixels_canvas = (pixels_canvas * 255).astype(np.uint8)
+                imageio.imwrite(pixels_path, pixels_canvas)
+
+                colors_path = f"{self.render_dir}/val/{step}/Pred/{i:04d}.png"
+                os.makedirs(os.path.dirname(colors_path), exist_ok=True)
+                colors_canvas = colors.squeeze(0).cpu().numpy()
+                colors_canvas = (colors_canvas * 255).astype(np.uint8)
+                imageio.imwrite(colors_path, colors_canvas)
+
+                alphas_path = f"{self.render_dir}/val/{step}/Alpha/{i:04d}.png"
+                os.makedirs(os.path.dirname(alphas_path), exist_ok=True)
+                alphas_canvas = (alphas < 0.5).squeeze(0).cpu().numpy()
+                alphas_canvas = (alphas_canvas * 255).astype(np.uint8)
+                Image.fromarray(alphas_canvas.squeeze(), mode='L').save(alphas_path)
 
                 pixels_p = pixels.permute(0, 3, 1, 2)  # [1, 3, H, W]
                 colors_p = colors.permute(0, 3, 1, 2)  # [1, 3, H, W]
